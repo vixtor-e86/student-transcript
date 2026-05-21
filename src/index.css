@@ -1,0 +1,86 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 130 16% 85%;
+    --foreground: 150 26% 14%;
+    --card: 130 16% 85%;
+    --card-foreground: 150 26% 14%;
+    --popover: 130 16% 85%;
+    --popover-foreground: 150 26% 14%;
+    --primary: 150 26% 14%;
+    --primary-foreground: 130 16% 92%;
+    --secondary: 120 9% 74%;
+    --secondary-foreground: 150 26% 14%;
+    --muted: 120 9% 74%;
+    --muted-foreground: 143 14% 25%;
+    --accent: 120 9% 74%;
+    --accent-foreground: 150 26% 14%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 143 14% 25%;
+    --input: 143 14% 25%;
+    --ring: 38 36% 60%;
+    --radius: 0.625rem;
+    --sidebar-background: 150 26% 14%;
+    --sidebar-foreground: 130 16% 85%;
+    --sidebar-primary: 38 36% 60%;
+    --sidebar-primary-foreground: 150 26% 14%;
+    --sidebar-accent: 143 14% 25%;
+    --sidebar-accent-foreground: 130 16% 85%;
+    --sidebar-border: 143 14% 25%;
+    --sidebar-ring: 38 36% 60%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-sage text-forest antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #d4e1d1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3a4a3e;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #1a2f23;
+}
+
+/* Text reveal animation helper */
+.word-wrapper {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: top;
+}
+
+.word-inner {
+  display: inline-block;
+}
