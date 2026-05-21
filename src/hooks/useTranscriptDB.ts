@@ -52,7 +52,7 @@ export function useTranscriptDB() {
   const addTranscript = useCallback(
     async (formData: UploadFormData, file: File): Promise<Transcript> => {
       if (isLocal) {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
           const reader = new FileReader();
           reader.onload = () => {
             const newTranscript: Transcript = {
