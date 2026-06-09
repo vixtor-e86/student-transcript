@@ -1,10 +1,6 @@
 import { put } from '@vercel/blob';
 import { kv } from '@vercel/kv';
-import type { Transcript } from '../src/types/transcript';
-
-export const config = {
-  runtime: 'edge',
-};
+import type { Transcript } from '../src/types/transcript.js';
 
 const STORAGE_KEY = 'fedpolynas_transcripts';
 
