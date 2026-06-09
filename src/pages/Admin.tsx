@@ -87,7 +87,79 @@ export default function Admin() {
     []
   );
 
-  // ... rest of the helper functions (handleDrag, handleDrop, handleFileChange, handleSubmit, handleDelete, formatBytes) remain the same
+  const handleDrag = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true);
+    } else if (e.type === 'dragleave') {
+      setDragActive(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files?.[0]) {
+      setFile(e.dataTransfer.files[0]);
+    }
+  }, []);
+
+  const handleFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files?.[0]) {
+        setFile(e.target.files[0]);
+      }
+    },
+    []
+  );
+
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!file) {
+        showMessage('error', 'Please select a transcript file to upload');
+        return;
+      }
+      if (!form.matricNumber || !form.studentName) {
+        showMessage('error', 'Matric number and student name are required');
+        return;
+      }
+      try {
+        await addTranscript(form, file);
+        showMessage('success', 'Transcript uploaded successfully');
+        setForm(initialForm);
+        setFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      } catch (err: any) {
+        showMessage('error', err.message || 'Failed to upload transcript');
+      }
+    },
+    [form, file, addTranscript, showMessage]
+  );
+
+  const handleDelete = useCallback(
+    async (id: string) => {
+      if (window.confirm('Are you sure you want to delete this transcript?')) {
+        try {
+          await deleteTranscript(id);
+          showMessage('success', 'Transcript deleted');
+        } catch (err: any) {
+          showMessage('error', err.message || 'Failed to delete transcript');
+        }
+      }
+    },
+    [deleteTranscript, showMessage]
+  );
+
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
 
   if (!isAuthenticated) {
     return (
@@ -374,7 +446,7 @@ export default function Admin() {
                           Drag & drop PDF here, or click to browse
                         </p>
                         <p className="text-xs text-olive/60 mt-1">
-                          Supports PDF, JPG, PNG (max 10MB)
+                          Supports PDF, JPG, PNG (max 5MB)
                         </p>
                       </>
                     )}
