@@ -9,8 +9,6 @@ import {
   Clock,
   HardDrive,
   CheckCircle,
-  AlertCircle,
-  X,
   ChevronDown,
   ChevronUp,
   Lock,
