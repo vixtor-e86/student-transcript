@@ -3,8 +3,8 @@ import type { Transcript, UploadFormData } from '@/types/transcript';
 
 const STORAGE_KEY = 'fedpolynas_transcripts';
 
-// Fallback to LocalStorage if Vercel tokens aren't present
-const isLocal = !import.meta.env.VITE_VERCEL_BLOB_TOKEN;
+// Use Cloud API if we are in production (Vercel)
+const isLocal = import.meta.env.DEV;
 
 function getStoredTranscripts(): Transcript[] {
   try {

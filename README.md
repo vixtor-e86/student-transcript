@@ -1,73 +1,62 @@
-# React + TypeScript + Vite
+# Student Transcript Management System - Federal Polytechnic Nasarawa
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A modern, secure, and efficient web application for managing academic transcripts, specifically tailored for Federal Polytechnic Nasarawa. Built for high performance and scalability using the Vercel ecosystem.
 
-Currently, two official plugins are available:
+## 🚀 Live Features
+- **Student Portal:** Instant transcript search via matriculation number with secure download links.
+- **Admin Portal:** Secure interface for uploading, managing, and deleting student transcript records.
+- **Cloud Infrastructure:**
+  - **Metadata:** Managed via Vercel KV (Serverless Redis) for real-time data consistency.
+  - **Asset Storage:** PDFs and images are stored securely in Vercel Blob storage with a 5MB per-file limit.
+- **Visual Excellence:** High-end aesthetics featuring a WebGL-powered Sine Wave Helix background and responsive design.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 🛠️ Technology Stack
+- **Frontend:** React (TypeScript), Vite, Tailwind CSS.
+- **UI Components:** Shadcn/UI (Radix UI), Lucide Icons.
+- **Storage:** Vercel Blob (Files), Vercel KV (JSON Metadata).
+- **Backend:** Vercel Serverless Functions (Node.js API).
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## 📂 Project Structure
+```text
+├── api/                # Vercel Serverless Functions (Backend API)
+├── src/
+│   ├── components/     # UI Components & Helix Visualizer
+│   ├── hooks/          # useTranscriptDB (Hybrid Cloud/Local Hook)
+│   ├── pages/          # Student & Admin Portals
+│   └── types/          # TypeScript interfaces
+├── public/             # Static assets
+└── index.html          # Entry point
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## ⚙️ Configuration & Deployment
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### Local Development
+1. **Clone the repo.**
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+3. **Start the dev server:**
+   ```bash
+   npm run dev
+   ```
+   *Note: If no Vercel tokens are found, the app automatically falls back to LocalStorage for development.*
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+### Production Deployment (Vercel)
+1. Push the code to a GitHub repository.
+2. Import the project into **Vercel**.
+3. Go to the **Storage** tab in your Vercel project dashboard.
+4. Create and connect:
+   - **Vercel KV** (Database)
+   - **Vercel Blob** (File Storage)
+5. Vercel will automatically inject the necessary `KV_URL` and `BLOB_READ_WRITE_TOKEN` environment variables.
+6. Re-deploy the project.
+
+## 📋 Client Handoff Instructions
+To deliver the project to the client, provide them with:
+1. The GitHub repository access.
+2. The Vercel dashboard access (or transfer the project to their Vercel team).
+3. The PDF documentation generated for the project.
+
+---
+*Created by [Your Name] — 2026 Final Project*

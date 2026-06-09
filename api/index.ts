@@ -1,39 +1,96 @@
 import { put } from '@vercel/blob';
 import { kv } from '@vercel/kv';
-import type { Transcript } from '../../src/types/transcript';
+import type { Transcript } from '../src/types/transcript';
+
+export const config = {
+  runtime: 'edge',
+};
 
 const STORAGE_KEY = 'fedpolynas_transcripts';
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
-export default async function handler(request: any, response: any) {
+export default async function handler(request: Request) {
+  const url = new URL(request.url);
+
+  // GET: Fetch all transcripts
   if (request.method === 'GET') {
     try {
       const transcripts = (await kv.get<Transcript[]>(STORAGE_KEY)) || [];
-      return response.status(200).json(transcripts);
+      return new Response(JSON.stringify(transcripts), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
     } catch (error) {
-      return response.status(500).json({ error: 'Failed to fetch transcripts' });
+      return new Response(JSON.stringify({ error: 'Failed to fetch' }), { status: 500 });
     }
   }
 
+  // POST: Upload new transcript
   if (request.method === 'POST') {
     try {
-      // Note: Vercel Functions handle body parsing differently. 
-      // For multipart/form-data with @vercel/blob, we usually use the request directly or a library like 'formidable'
-      // But for simplicity with Vercel's 'put' and small files, we can handle it.
-      
-      // Since this is a specialized Vercel environment, ensure you have the tokens configured.
-      
-      const { matricNumber, studentName, department, faculty, level, cgpa, session } = request.body;
-      const file = request.files?.file; // This depends on the body parser used by Vercel
+      const formData = await request.formData();
+      const file = formData.get('file') as File;
+      const matricNumber = formData.get('matricNumber') as string;
+      const studentName = formData.get('studentName') as string;
+      const department = formData.get('department') as string;
+      const faculty = formData.get('faculty') as string;
+      const level = formData.get('level') as string;
+      const cgpa = formData.get('cgpa') as string;
+      const session = formData.get('session') as string;
 
-      // Simplified logic for brevity - in production, use a proper multipart parser
-      // For now, we'll assume the client sends the correct data structure
-      
-      return response.status(200).json({ message: 'Ready for production' });
-    } catch (error) {
-      return response.status(500).json({ error: 'Upload failed' });
+      if (!file) {
+        return new Response(JSON.stringify({ error: 'No file' }), { status: 400 });
+      }
+
+      // 1. Upload file to Vercel Blob
+      const blob = await put(`transcripts/${matricNumber}-${file.name}`, file, {
+        access: 'public',
+      });
+
+      // 2. Save metadata to KV
+      const newTranscript: Transcript = {
+        id: `trs_${Date.now()}`,
+        matricNumber,
+        studentName,
+        department,
+        faculty,
+        level,
+        cgpa,
+        session,
+        fileName: file.name,
+        fileType: file.type,
+        fileUrl: blob.url,
+        uploadedAt: new Date().toISOString(),
+        fileSize: file.size,
+      };
+
+      const transcripts = (await kv.get<Transcript[]>(STORAGE_KEY)) || [];
+      transcripts.push(newTranscript);
+      await kv.set(STORAGE_KEY, transcripts);
+
+      return new Response(JSON.stringify(newTranscript), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error: any) {
+      return new Response(JSON.stringify({ error: error.message }), { status: 500 });
     }
   }
 
-  return response.status(405).json({ error: 'Method not allowed' });
+  // DELETE: Remove transcript
+  if (request.method === 'DELETE') {
+    try {
+      const id = url.searchParams.get('id');
+      if (!id) return new Response('Missing ID', { status: 400 });
+
+      const transcripts = (await kv.get<Transcript[]>(STORAGE_KEY)) || [];
+      const updated = transcripts.filter((t) => t.id !== id);
+      await kv.set(STORAGE_KEY, updated);
+
+      return new Response(JSON.stringify({ success: true }), { status: 200 });
+    } catch (error) {
+      return new Response('Delete failed', { status: 500 });
+    }
+  }
+
+  return new Response('Method not allowed', { status: 405 });
 }
