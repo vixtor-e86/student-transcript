@@ -1,42 +1,53 @@
-import { handleUpload } from '@vercel/blob';
+import { handleUpload, type HandleUploadBody } from '@vercel/blob';
 import { kv } from '@vercel/kv';
+
+export const config = {
+  runtime: 'nodejs',
+};
 
 const STORAGE_KEY = 'fedpolynas_transcripts';
 
-export default async function handler(req: any, res: any) {
-  // CORS Headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+export default async function handler(request: Request) {
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Content-Type': 'application/json',
+  };
 
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
-  // Check Environment Variables
+  // Check env vars
   if (!process.env.BLOB_READ_WRITE_TOKEN || !process.env.KV_URL) {
-    console.error('Environment variables missing: BLOB_READ_WRITE_TOKEN or KV_URL');
-    return res.status(500).json({ error: 'Storage configuration missing' });
+    console.error('Environment variables missing');
+    return new Response(
+      JSON.stringify({ error: 'Storage configuration missing. Please connect KV and Blob in Vercel.' }),
+      { status: 500, headers: corsHeaders }
+    );
   }
 
   try {
-    const { action } = req.query;
+    const url = new URL(request.url);
+    const action = url.searchParams.get('action');
 
     // 1. GET: Fetch all transcripts
-    if (req.method === 'GET') {
+    if (request.method === 'GET') {
       const transcripts = (await kv.get(STORAGE_KEY)) || [];
-      return res.status(200).json(transcripts);
+      return new Response(JSON.stringify(transcripts), { status: 200, headers: corsHeaders });
     }
 
-    // 2. POST: Upload Token or Save Metadata
-    if (req.method === 'POST') {
+    // 2. POST: Upload Token or Metadata
+    if (request.method === 'POST') {
       // CASE A: Client-side upload token request
       if (action === 'upload') {
+        const body = (await request.json()) as HandleUploadBody;
         try {
           const jsonResponse = await handleUpload({
-            body: req.body,
-            request: req,
-            onBeforeGenerateToken: async () => {
+            body,
+            request,
+            onBeforeGenerateToken: async (pathname) => {
               return {
                 allowedContentTypes: ['application/pdf', 'image/jpeg', 'image/png'],
                 tokenPayload: JSON.stringify({}),
@@ -46,18 +57,19 @@ export default async function handler(req: any, res: any) {
               console.log('Blob upload completed successfully:', blob.url);
             },
           });
-          return res.status(200).json(jsonResponse);
+          return new Response(JSON.stringify(jsonResponse), { status: 200, headers: corsHeaders });
         } catch (error: any) {
           console.error('handleUpload error:', error);
-          return res.status(400).json({ error: error.message });
+          return new Response(JSON.stringify({ error: error.message }), { status: 400, headers: corsHeaders });
         }
       }
 
       // CASE B: Save metadata to KV after successful blob upload
+      const body = await request.json();
       const { 
         matricNumber, studentName, department, faculty, level, 
         cgpa, session, fileUrl, fileName, fileType, fileSize 
-      } = req.body;
+      } = body;
 
       const newTranscript = {
         id: `trs_${Date.now()}`,
@@ -79,24 +91,27 @@ export default async function handler(req: any, res: any) {
       transcripts.push(newTranscript);
       await kv.set(STORAGE_KEY, transcripts);
 
-      return res.status(200).json(newTranscript);
+      return new Response(JSON.stringify(newTranscript), { status: 200, headers: corsHeaders });
     }
 
     // 3. DELETE: Remove transcript
-    if (req.method === 'DELETE') {
-      const { id } = req.query;
-      if (!id) return res.status(400).json({ error: 'Missing ID' });
+    if (request.method === 'DELETE') {
+      const id = url.searchParams.get('id');
+      if (!id) return new Response(JSON.stringify({ error: 'Missing ID' }), { status: 400, headers: corsHeaders });
 
       const transcripts: any[] = (await kv.get(STORAGE_KEY)) || [];
       const updated = transcripts.filter((t: any) => t.id !== id);
       await kv.set(STORAGE_KEY, updated);
 
-      return res.status(200).json({ success: true });
+      return new Response(JSON.stringify({ success: true }), { status: 200, headers: corsHeaders });
     }
 
-    return res.status(405).json({ error: 'Method not allowed' });
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers: corsHeaders });
   } catch (error: any) {
     console.error('API Runtime Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error', details: error.message });
+    return new Response(
+      JSON.stringify({ error: 'Internal Server Error', details: error.message }), 
+      { status: 500, headers: corsHeaders }
+    );
   }
 }
