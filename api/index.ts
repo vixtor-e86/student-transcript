@@ -21,15 +21,17 @@ export default async function handler(request: Request) {
 
   // Check env vars
   if (!process.env.BLOB_READ_WRITE_TOKEN || !process.env.KV_URL) {
-    console.error('Environment variables missing: BLOB_READ_WRITE_TOKEN or KV_URL');
+    console.error('Environment variables missing');
     return new Response(
-      JSON.stringify({ error: 'Storage configuration missing' }),
+      JSON.stringify({ error: 'Storage configuration missing. Please connect KV and Blob in Vercel.' }),
       { status: 500, headers }
     );
   }
 
   try {
-    const url = new URL(request.url);
+    // Safe URL parsing
+    const host = request.headers.get('host') || 'localhost';
+    const url = new URL(request.url, `https://${host}`);
     const action = url.searchParams.get('action');
 
     // 1. GET: Fetch all transcripts
@@ -40,52 +42,34 @@ export default async function handler(request: Request) {
 
     // 2. POST: Upload Token or Metadata
     if (request.method === 'POST') {
-      // CASE A: Client-side upload token request
       if (action === 'upload') {
         const body = (await request.json()) as HandleUploadBody;
         try {
           const jsonResponse = await handleUpload({
             body,
             request,
-            onBeforeGenerateToken: async (pathname) => {
-              // Custom logic to validate user or file path can go here
+            onBeforeGenerateToken: async () => {
               return {
                 allowedContentTypes: ['application/pdf', 'image/jpeg', 'image/png'],
                 tokenPayload: JSON.stringify({}),
               };
             },
-            onUploadCompleted: async ({ blob, tokenPayload }) => {
-              console.log('Blob upload completed successfully:', blob.url);
+            onUploadCompleted: async ({ blob }) => {
+              console.log('Blob upload completed:', blob.url);
             },
           });
           return new Response(JSON.stringify(jsonResponse), { status: 200, headers });
         } catch (error: any) {
-          console.error('handleUpload error:', error);
           return new Response(JSON.stringify({ error: error.message }), { status: 400, headers });
         }
       }
 
-      // CASE B: Save metadata to KV after successful blob upload
+      // Save metadata
       const body = await request.json();
-      const { 
-        matricNumber, studentName, department, faculty, level, 
-        cgpa, session, fileUrl, fileName, fileType, fileSize 
-      } = body;
-
       const newTranscript = {
         id: `trs_${Date.now()}`,
-        matricNumber: matricNumber || 'Unknown',
-        studentName: studentName || 'Unknown',
-        department: department || '',
-        faculty: faculty || '',
-        level: level || '',
-        cgpa: cgpa || '',
-        session: session || '',
-        fileName: fileName || 'transcript.pdf',
-        fileType: fileType || 'application/pdf',
-        fileUrl: fileUrl,
+        ...body,
         uploadedAt: new Date().toISOString(),
-        fileSize: fileSize || 0,
       };
 
       const transcripts: any[] = (await kv.get(STORAGE_KEY)) || [];
@@ -95,7 +79,7 @@ export default async function handler(request: Request) {
       return new Response(JSON.stringify(newTranscript), { status: 200, headers });
     }
 
-    // 3. DELETE: Remove transcript
+    // 3. DELETE
     if (request.method === 'DELETE') {
       const id = url.searchParams.get('id');
       if (!id) return new Response(JSON.stringify({ error: 'Missing ID' }), { status: 400, headers });
@@ -109,7 +93,7 @@ export default async function handler(request: Request) {
 
     return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers });
   } catch (error: any) {
-    console.error('API Runtime Error:', error);
+    console.error('API Error:', error);
     return new Response(
       JSON.stringify({ error: 'Internal Server Error', details: error.message }), 
       { status: 500, headers }
