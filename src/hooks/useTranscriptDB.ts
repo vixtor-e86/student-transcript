@@ -51,35 +51,50 @@ export function useTranscriptDB() {
 
   const addTranscript = useCallback(
     async (formData: UploadFormData, file: File): Promise<Transcript> => {
+      if (file.size > MAX_FILE_SIZE) throw new Error('File size exceeds 5MB limit');
+
+      // Helper to convert file to Base64
+      const toBase64 = (f: File) => new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(f);
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = error => reject(error);
+      });
+
       if (isLocal) {
-        return new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const newTranscript: Transcript = {
-              id: `trs_${Date.now()}`,
-              ...formData,
-              fileName: file.name,
-              fileType: file.type,
-              fileUrl: reader.result as string, // Local Base64
-              uploadedAt: new Date().toISOString(),
-              fileSize: file.size,
-            };
-            const updated = [...getStoredTranscripts(), newTranscript];
-            saveTranscripts(updated);
-            setTranscripts(updated);
-            resolve(newTranscript);
-          };
-          reader.readAsDataURL(file);
-        });
+        const fileData = await toBase64(file);
+        const newTranscript: Transcript = {
+          id: `trs_${Date.now()}`,
+          ...formData,
+          fileName: file.name,
+          fileType: file.type,
+          fileUrl: fileData, // Local Base64
+          uploadedAt: new Date().toISOString(),
+          fileSize: file.size,
+        };
+        const updated = [...getStoredTranscripts(), newTranscript];
+        saveTranscripts(updated);
+        setTranscripts(updated);
+        return newTranscript;
       }
 
-      // Vercel Logic
-      const data = new FormData();
-      Object.entries(formData).forEach(([key, value]) => data.append(key, value));
-      data.append('file', file);
+      // Vercel Logic: Send as JSON with Base64
+      const fileData = await toBase64(file);
+      const response = await fetch('/api', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...formData,
+          file: fileData,
+          fileName: file.name,
+          fileType: file.type,
+        }),
+      });
 
-      const response = await fetch('/api', { method: 'POST', body: data });
-      if (!response.ok) throw new Error('Upload failed');
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || error.details || 'Upload failed');
+      }
       const result = await response.json();
       setTranscripts(prev => [...prev, result]);
       return result;
