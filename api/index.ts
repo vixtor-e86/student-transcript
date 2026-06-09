@@ -49,6 +49,8 @@ export default async function handler(request: Request) {
         cgpa, session, file, fileName, fileType 
       } = body;
 
+      console.log('Upload request for:', matricNumber);
+
       if (!file) {
         return new Response(JSON.stringify({ error: 'No file data received' }), { status: 400, headers });
       }
@@ -57,35 +59,48 @@ export default async function handler(request: Request) {
       const base64Data = file.includes(',') ? file.split(',')[1] : file;
       const buffer = Buffer.from(base64Data, 'base64');
 
+      // Sanitize matric number and filename for the blob path
+      const safeMatric = (matricNumber || 'temp').replace(/[^a-zA-Z0-9]/g, '_');
+      const safeFileName = (fileName || 'transcript.pdf').replace(/[^a-zA-Z0-9.]/g, '_');
+
       // 3.1 Upload to Vercel Blob
-      const blob = await put(`transcripts/${matricNumber || 'temp'}-${Date.now()}-${fileName}`, buffer, {
-        access: 'public',
-        contentType: fileType || 'application/pdf',
-      });
+      try {
+        const blob = await put(`transcripts/${safeMatric}-${Date.now()}-${safeFileName}`, buffer, {
+          access: 'public',
+          contentType: fileType || 'application/pdf',
+        });
 
-      // 3.2 Create Record
-      const newTranscript = {
-        id: `trs_${Date.now()}`,
-        matricNumber: matricNumber || 'Unknown',
-        studentName: studentName || 'Unknown',
-        department: department || '',
-        faculty: faculty || '',
-        level: level || '',
-        cgpa: cgpa || '',
-        session: session || '',
-        fileName: fileName || 'transcript.pdf',
-        fileType: fileType || 'application/pdf',
-        fileUrl: blob.url,
-        uploadedAt: new Date().toISOString(),
-        fileSize: buffer.length,
-      };
+        // 3.2 Create Record
+        const newTranscript = {
+          id: `trs_${Date.now()}`,
+          matricNumber: matricNumber || 'Unknown',
+          studentName: studentName || 'Unknown',
+          department: department || '',
+          faculty: faculty || '',
+          level: level || '',
+          cgpa: cgpa || '',
+          session: session || '',
+          fileName: fileName || 'transcript.pdf',
+          fileType: fileType || 'application/pdf',
+          fileUrl: blob.url,
+          uploadedAt: new Date().toISOString(),
+          fileSize: buffer.length,
+        };
 
-      // 3.3 Update KV
-      const transcripts: any[] = (await kv.get(STORAGE_KEY)) || [];
-      transcripts.push(newTranscript);
-      await kv.set(STORAGE_KEY, transcripts);
+        // 3.3 Update KV
+        const transcripts: any[] = (await kv.get(STORAGE_KEY)) || [];
+        transcripts.push(newTranscript);
+        await kv.set(STORAGE_KEY, transcripts);
 
-      return new Response(JSON.stringify(newTranscript), { status: 200, headers });
+        console.log('Upload successful:', newTranscript.id);
+        return new Response(JSON.stringify(newTranscript), { status: 200, headers });
+      } catch (blobError: any) {
+        console.error('Blob/KV Error:', blobError);
+        return new Response(
+          JSON.stringify({ error: 'Storage failure', details: blobError.message }), 
+          { status: 500, headers }
+        );
+      }
     }
 
     // 4. DELETE: Remove transcript

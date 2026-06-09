@@ -1,5 +1,6 @@
 import { Routes, Route, useLocation } from 'react-router';
 import { useEffect } from 'react';
+import { Toaster } from 'sonner';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import Student from './pages/Student';
@@ -20,6 +21,7 @@ function Layout({ children }: { children: React.ReactNode }) {
       <Navbar />
       <main className="flex-1">{children}</main>
       <Footer />
+      <Toaster position="top-center" richColors />
     </div>
   );
 }

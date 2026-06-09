@@ -37,6 +37,11 @@ export function useTranscriptDB() {
       if (response.ok) {
         const data = await response.json();
         setTranscripts(data);
+      } else {
+        const errorText = await response.text();
+        console.error('API Fetch error:', response.status, errorText);
+        // Try fallback to local if API is down
+        setTranscripts(getStoredTranscripts());
       }
     } catch (error) {
       console.error('API Fetch error:', error);
@@ -80,25 +85,38 @@ export function useTranscriptDB() {
       }
 
       // Vercel Logic: Send as JSON with Base64
-      const fileData = await toBase64(file);
-      const response = await fetch('/api', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...formData,
-          file: fileData,
-          fileName: file.name,
-          fileType: file.type,
-        }),
-      });
+      try {
+        const fileData = await toBase64(file);
+        const response = await fetch('/api', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...formData,
+            file: fileData,
+            fileName: file.name,
+            fileType: file.type,
+          }),
+        });
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || error.details || 'Upload failed');
+        if (!response.ok) {
+          let errorMessage = 'Upload failed';
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorData.details || errorMessage;
+          } catch (e) {
+            const text = await response.text();
+            errorMessage = text || `Server returned ${response.status}`;
+          }
+          throw new Error(errorMessage);
+        }
+        
+        const result = await response.json();
+        setTranscripts(prev => [...prev, result]);
+        return result;
+      } catch (error: any) {
+        console.error('Upload Error:', error);
+        throw error;
       }
-      const result = await response.json();
-      setTranscripts(prev => [...prev, result]);
-      return result;
     },
     []
   );

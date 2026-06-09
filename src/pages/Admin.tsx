@@ -14,7 +14,9 @@ import {
   ChevronDown,
   ChevronUp,
   Lock,
+  Loader2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useTranscriptDB } from '@/hooks/useTranscriptDB';
@@ -40,6 +42,7 @@ export default function Admin() {
     downloadTranscript,
     searchTranscripts,
     getStats,
+    isLoading: isDbLoading,
   } = useTranscriptDB();
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
@@ -48,12 +51,9 @@ export default function Admin() {
   
   const [form, setForm] = useState<UploadFormData>(initialForm);
   const [file, setFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [dragActive, setDragActive] = useState(false);
-  const [message, setMessage] = useState<{
-    type: 'success' | 'error';
-    text: string;
-  } | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -71,21 +71,15 @@ export default function Admin() {
       setIsAuthenticated(true);
       sessionStorage.setItem(AUTH_KEY, 'true');
       setAuthError('');
+      toast.success('Authenticated successfully');
     } else {
       setAuthError('Invalid password. Please try again.');
+      toast.error('Invalid password');
     }
   };
 
   const stats = getStats();
   const filteredTranscripts = searchTranscripts(searchQuery);
-
-  const showMessage = useCallback(
-    (type: 'success' | 'error', text: string) => {
-      setMessage({ type, text });
-      setTimeout(() => setMessage(null), 5000);
-    },
-    []
-  );
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -102,14 +96,25 @@ export default function Admin() {
     e.stopPropagation();
     setDragActive(false);
     if (e.dataTransfer.files?.[0]) {
-      setFile(e.dataTransfer.files[0]);
+      const droppedFile = e.dataTransfer.files[0];
+      if (droppedFile.size > 5 * 1024 * 1024) {
+        toast.error('File too large (max 5MB)');
+        return;
+      }
+      setFile(droppedFile);
     }
   }, []);
 
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files?.[0]) {
-        setFile(e.target.files[0]);
+        const selectedFile = e.target.files[0];
+        if (selectedFile.size > 5 * 1024 * 1024) {
+          toast.error('File too large (max 5MB)');
+          if (fileInputRef.current) fileInputRef.current.value = '';
+          return;
+        }
+        setFile(selectedFile);
       }
     },
     []
@@ -119,24 +124,30 @@ export default function Admin() {
     async (e: React.FormEvent) => {
       e.preventDefault();
       if (!file) {
-        showMessage('error', 'Please select a transcript file to upload');
+        toast.error('Please select a transcript file to upload');
         return;
       }
       if (!form.matricNumber || !form.studentName) {
-        showMessage('error', 'Matric number and student name are required');
+        toast.error('Matric number and student name are required');
         return;
       }
+      
+      setIsUploading(true);
+      const loadingToast = toast.loading('Uploading transcript to blob storage...');
+      
       try {
         await addTranscript(form, file);
-        showMessage('success', 'Transcript uploaded successfully');
+        toast.success('Transcript uploaded successfully', { id: loadingToast });
         setForm(initialForm);
         setFile(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
       } catch (err: any) {
-        showMessage('error', err.message || 'Failed to upload transcript');
+        toast.error(err.message || 'Failed to upload transcript', { id: loadingToast });
+      } finally {
+        setIsUploading(false);
       }
     },
-    [form, file, addTranscript, showMessage]
+    [form, file, addTranscript]
   );
 
   const handleDelete = useCallback(
@@ -144,13 +155,13 @@ export default function Admin() {
       if (window.confirm('Are you sure you want to delete this transcript?')) {
         try {
           await deleteTranscript(id);
-          showMessage('success', 'Transcript deleted');
+          toast.success('Transcript deleted');
         } catch (err: any) {
-          showMessage('error', err.message || 'Failed to delete transcript');
+          toast.error(err.message || 'Failed to delete transcript');
         }
       }
     },
-    [deleteTranscript, showMessage]
+    [deleteTranscript]
   );
 
   const formatBytes = (bytes: number) => {
@@ -224,36 +235,13 @@ export default function Admin() {
             onClick={() => {
               sessionStorage.removeItem(AUTH_KEY);
               setIsAuthenticated(false);
+              toast.info('Logged out');
             }}
             className="text-olive hover:text-forest w-fit"
           >
             Logout
           </Button>
         </div>
-
-        {/* Message Banner */}
-        {message && (
-          <div
-            className={`mb-6 flex items-center gap-3 px-5 py-4 rounded-lg ${
-              message.type === 'success'
-                ? 'bg-forest/10 border border-forest/20 text-forest'
-                : 'bg-red-50 border border-red-200 text-red-700'
-            }`}
-          >
-            {message.type === 'success' ? (
-              <CheckCircle className="w-5 h-5 shrink-0" />
-            ) : (
-              <AlertCircle className="w-5 h-5 shrink-0" />
-            )}
-            <span className="text-sm font-medium">{message.text}</span>
-            <button
-              onClick={() => setMessage(null)}
-              className="ml-auto hover:opacity-70"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        )}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
@@ -321,6 +309,7 @@ export default function Admin() {
                     }
                     placeholder="e.g. 18/30GR001"
                     className="bg-transparent border-olive/30 focus:border-forest focus:ring-forest/20"
+                    disabled={isUploading}
                   />
                 </div>
 
@@ -335,6 +324,7 @@ export default function Admin() {
                     }
                     placeholder="Full name"
                     className="bg-transparent border-olive/30 focus:border-forest focus:ring-forest/20"
+                    disabled={isUploading}
                   />
                 </div>
 
@@ -350,6 +340,7 @@ export default function Admin() {
                       }
                       placeholder="e.g. Computer Science"
                       className="bg-transparent border-olive/30 focus:border-forest focus:ring-forest/20"
+                      disabled={isUploading}
                     />
                   </div>
                   <div>
@@ -363,6 +354,7 @@ export default function Admin() {
                       }
                       placeholder="e.g. Pure & Applied Sciences"
                       className="bg-transparent border-olive/30 focus:border-forest focus:ring-forest/20"
+                      disabled={isUploading}
                     />
                   </div>
                 </div>
@@ -379,6 +371,7 @@ export default function Admin() {
                       }
                       placeholder="e.g. 400L"
                       className="bg-transparent border-olive/30 focus:border-forest focus:ring-forest/20"
+                      disabled={isUploading}
                     />
                   </div>
                   <div>
@@ -392,6 +385,7 @@ export default function Admin() {
                       }
                       placeholder="e.g. 4.52"
                       className="bg-transparent border-olive/30 focus:border-forest focus:ring-forest/20"
+                      disabled={isUploading}
                     />
                   </div>
                 </div>
@@ -407,6 +401,7 @@ export default function Admin() {
                     }
                     placeholder="e.g. 2023/2024"
                     className="bg-transparent border-olive/30 focus:border-forest focus:ring-forest/20"
+                    disabled={isUploading}
                   />
                 </div>
 
@@ -420,8 +415,10 @@ export default function Admin() {
                     onDragLeave={handleDrag}
                     onDragOver={handleDrag}
                     onDrop={handleDrop}
-                    onClick={() => fileInputRef.current?.click()}
-                    className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-all duration-300 ${
+                    onClick={() => !isUploading && fileInputRef.current?.click()}
+                    className={`border-2 border-dashed rounded-lg p-6 text-center transition-all duration-300 ${
+                      isUploading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                    } ${
                       dragActive
                         ? 'border-gold bg-gold/10'
                         : file
@@ -456,15 +453,27 @@ export default function Admin() {
                       accept=".pdf,.jpg,.jpeg,.png"
                       onChange={handleFileChange}
                       className="hidden"
+                      disabled={isUploading}
                     />
                   </div>
                 </div>
 
                 <Button
                   type="submit"
-                  className="w-full bg-forest hover:bg-forest/90 text-sage rounded-full py-5 text-sm font-medium tracking-wide"
+                  disabled={isUploading}
+                  className="w-full bg-forest hover:bg-forest/90 text-sage rounded-full py-5 text-sm font-medium tracking-wide flex items-center justify-center gap-2"
                 >
-                  Upload Transcript
+                  {isUploading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-4 h-4" />
+                      Upload Transcript
+                    </>
+                  )}
                 </Button>
               </form>
             </div>
@@ -477,6 +486,7 @@ export default function Admin() {
                 <h2 className="text-lg font-medium text-forest flex items-center gap-2">
                   <FileText className="w-5 h-5 text-gold" />
                   Uploaded Transcripts
+                  {isDbLoading && <Loader2 className="w-4 h-4 animate-spin text-forest/40" />}
                 </h2>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-olive" />
