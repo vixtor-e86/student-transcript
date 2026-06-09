@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import type { Transcript, UploadFormData } from '@/types/transcript';
 
 const STORAGE_KEY = 'fedpolynas_transcripts';
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
 // Use Cloud API if we are in production (Vercel)
 const isLocal = import.meta.env.DEV;
