@@ -1,11 +1,39 @@
 import { put } from '@vercel/blob';
 import { kv } from '@vercel/kv';
-import type { Transcript } from '../src/types/transcript.js';
+
+// Inline the type to ensure no import path issues during Vercel deployment
+interface Transcript {
+  id: string;
+  matricNumber: string;
+  studentName: string;
+  department: string;
+  faculty: string;
+  level: string;
+  cgpa: string;
+  session: string;
+  fileName: string;
+  fileType: string;
+  fileUrl: string;
+  uploadedAt: string;
+  fileSize: number;
+}
 
 const STORAGE_KEY = 'fedpolynas_transcripts';
 
 export default async function handler(request: Request) {
   const url = new URL(request.url);
+
+  // Health check and Env verification
+  if (!process.env.BLOB_READ_WRITE_TOKEN || !process.env.KV_URL) {
+    return new Response(
+      JSON.stringify({ 
+        error: 'Environment variables missing. Please connect Vercel Blob and KV in your project dashboard.',
+        hasBlob: !!process.env.BLOB_READ_WRITE_TOKEN,
+        hasKV: !!process.env.KV_URL
+      }), 
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
 
   // GET: Fetch all transcripts
   if (request.method === 'GET') {
@@ -15,8 +43,8 @@ export default async function handler(request: Request) {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
-    } catch (error) {
-      return new Response(JSON.stringify({ error: 'Failed to fetch' }), { status: 500 });
+    } catch (error: any) {
+      return new Response(JSON.stringify({ error: 'KV Fetch failed', details: error.message }), { status: 500 });
     }
   }
 
@@ -25,6 +53,8 @@ export default async function handler(request: Request) {
     try {
       const formData = await request.formData();
       const file = formData.get('file') as File;
+      
+      // Extract other fields
       const matricNumber = formData.get('matricNumber') as string;
       const studentName = formData.get('studentName') as string;
       const department = formData.get('department') as string;
@@ -34,7 +64,7 @@ export default async function handler(request: Request) {
       const session = formData.get('session') as string;
 
       if (!file) {
-        return new Response(JSON.stringify({ error: 'No file' }), { status: 400 });
+        return new Response(JSON.stringify({ error: 'No file provided in request' }), { status: 400 });
       }
 
       // 1. Upload file to Vercel Blob
@@ -45,13 +75,13 @@ export default async function handler(request: Request) {
       // 2. Save metadata to KV
       const newTranscript: Transcript = {
         id: `trs_${Date.now()}`,
-        matricNumber,
-        studentName,
-        department,
-        faculty,
-        level,
-        cgpa,
-        session,
+        matricNumber: matricNumber || 'Unknown',
+        studentName: studentName || 'Unknown',
+        department: department || '',
+        faculty: faculty || '',
+        level: level || '',
+        cgpa: cgpa || '',
+        session: session || '',
         fileName: file.name,
         fileType: file.type,
         fileUrl: blob.url,
@@ -68,7 +98,10 @@ export default async function handler(request: Request) {
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (error: any) {
-      return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+      return new Response(
+        JSON.stringify({ error: 'Upload process failed', details: error.message }), 
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
     }
   }
 
@@ -83,8 +116,8 @@ export default async function handler(request: Request) {
       await kv.set(STORAGE_KEY, updated);
 
       return new Response(JSON.stringify({ success: true }), { status: 200 });
-    } catch (error) {
-      return new Response('Delete failed', { status: 500 });
+    } catch (error: any) {
+      return new Response(JSON.stringify({ error: 'Delete failed', details: error.message }), { status: 500 });
     }
   }
 
