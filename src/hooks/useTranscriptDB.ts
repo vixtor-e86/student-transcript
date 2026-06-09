@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
+import { upload } from '@vercel/blob/client';
 import type { Transcript, UploadFormData } from '@/types/transcript';
 
 const STORAGE_KEY = 'fedpolynas_transcripts';
@@ -59,15 +60,14 @@ export function useTranscriptDB() {
     async (formData: UploadFormData, file: File): Promise<Transcript> => {
       if (file.size > MAX_FILE_SIZE) throw new Error('File size exceeds 5MB limit');
 
-      // Helper to convert file to Base64
-      const toBase64 = (f: File) => new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(f);
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = error => reject(error);
-      });
-
       if (isLocal) {
+        const toBase64 = (f: File) => new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(f);
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = error => reject(error);
+        });
+
         const fileData = await toBase64(file);
         const newTranscript: Transcript = {
           id: `trs_${Date.now()}`,
@@ -84,22 +84,29 @@ export function useTranscriptDB() {
         return newTranscript;
       }
 
-      // Vercel Logic: Send as JSON with Base64
+      // Vercel Logic: Use Client-Side Upload to bypass 4.5MB limit
       try {
-        const fileData = await toBase64(file);
+        // 1. Upload file directly to Vercel Blob
+        const blob = await upload(`transcripts/${formData.matricNumber.replace(/\//g, '_')}-${Date.now()}-${file.name}`, file, {
+          access: 'public',
+          handleUploadUrl: '/api?action=upload',
+        });
+
+        // 2. Save metadata to KV via our API
         const response = await fetch('/api', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             ...formData,
-            file: fileData,
+            fileUrl: blob.url,
             fileName: file.name,
             fileType: file.type,
+            fileSize: file.size,
           }),
         });
 
         if (!response.ok) {
-          let errorMessage = 'Upload failed';
+          let errorMessage = 'Failed to save record';
           try {
             const errorData = await response.json();
             errorMessage = errorData.error || errorData.details || errorMessage;
