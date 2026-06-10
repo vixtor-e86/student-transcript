@@ -17,6 +17,16 @@ import {
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useTranscriptDB } from '@/hooks/useTranscriptDB';
 import type { Transcript, UploadFormData } from '@/types/transcript';
 
@@ -53,6 +63,7 @@ export default function Admin() {
   const [searchQuery, setSearchQuery] = useState('');
   const [dragActive, setDragActive] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Check authentication on mount
@@ -131,7 +142,7 @@ export default function Admin() {
       }
       
       setIsUploading(true);
-      const loadingToast = toast.loading('Uploading transcript to blob storage...');
+      const loadingToast = toast.loading('Uploading transcript to storage...');
       
       try {
         await addTranscript(form, file);
@@ -150,13 +161,13 @@ export default function Admin() {
 
   const handleDelete = useCallback(
     async (id: string) => {
-      if (window.confirm('Are you sure you want to delete this transcript?')) {
-        try {
-          await deleteTranscript(id);
-          toast.success('Transcript deleted');
-        } catch (err: any) {
-          toast.error(err.message || 'Failed to delete transcript');
-        }
+      try {
+        await deleteTranscript(id);
+        toast.success('Transcript deleted');
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to delete transcript');
+      } finally {
+        setDeleteId(null);
       }
     },
     [deleteTranscript]
@@ -554,7 +565,7 @@ export default function Admin() {
                             variant="ghost"
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleDelete(t.id);
+                              setDeleteId(t.id);
                             }}
                             className="text-olive hover:text-red-600 hover:bg-red-50"
                           >
@@ -631,6 +642,32 @@ export default function Admin() {
           </div>
         </div>
       </div>
+
+      <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-forest">
+              Confirm Deletion
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-olive">
+              Are you sure you want to delete this transcript? This action
+              cannot be undone and will permanently remove the student's record
+              from the system.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-olive/20 text-olive hover:text-forest">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteId && handleDelete(deleteId)}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              Delete Permanently
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

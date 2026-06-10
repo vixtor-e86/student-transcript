@@ -53,14 +53,14 @@ export function useTranscriptDB() {
       const filePath = `${fileName}`;
 
       const { error: uploadError } = await supabase.storage
-        .from('transcripts')
+        .from('Transcript')
         .upload(filePath, file);
 
       if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
 
       // 2. Get Public URL
       const { data: urlData } = supabase.storage
-        .from('transcripts')
+        .from('Transcript')
         .getPublicUrl(filePath);
 
       const fileUrl = urlData.publicUrl;
