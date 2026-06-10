@@ -1,117 +1,82 @@
-import { handleUpload, type HandleUploadBody } from '@vercel/blob';
+import { handleUpload } from '@vercel/blob';
 import { kv } from '@vercel/kv';
 
-export const config = {
-  runtime: 'nodejs',
-};
+export default async function handler(req: any, res: any) {
+  // 1. Set CORS headers manually for maximum compatibility
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-const STORAGE_KEY = 'fedpolynas_transcripts';
-
-export default async function handler(request: Request) {
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Content-Type': 'application/json',
-  };
-
-  if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders });
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
   }
 
-  // Check env vars
+  // 2. Check for required environment variables
   if (!process.env.BLOB_READ_WRITE_TOKEN || !process.env.KV_URL) {
-    console.error('Environment variables missing');
-    return new Response(
-      JSON.stringify({ error: 'Storage configuration missing. Please connect KV and Blob in Vercel.' }),
-      { status: 500, headers: corsHeaders }
-    );
+    console.error('MISSING ENV VARS: BLOB_READ_WRITE_TOKEN or KV_URL');
+    return res.status(500).json({ error: 'Storage not configured in Vercel.' });
   }
 
   try {
-    const url = new URL(request.url);
-    const action = url.searchParams.get('action');
+    const { action } = req.query;
 
-    // 1. GET: Fetch all transcripts
-    if (request.method === 'GET') {
-      const transcripts = (await kv.get(STORAGE_KEY)) || [];
-      return new Response(JSON.stringify(transcripts), { status: 200, headers: corsHeaders });
+    // 3. GET: Fetch all transcripts
+    if (req.method === 'GET') {
+      const transcripts = await kv.get('fedpolynas_transcripts');
+      return res.status(200).json(transcripts || []);
     }
 
-    // 2. POST: Upload Token or Metadata
-    if (request.method === 'POST') {
+    // 4. POST: Token Generation or Metadata Saving
+    if (req.method === 'POST') {
       // CASE A: Client-side upload token request
       if (action === 'upload') {
-        const body = (await request.json()) as HandleUploadBody;
         try {
           const jsonResponse = await handleUpload({
-            body,
-            request,
-            onBeforeGenerateToken: async (pathname) => {
+            body: req.body,
+            request: req,
+            onBeforeGenerateToken: async () => {
               return {
                 allowedContentTypes: ['application/pdf', 'image/jpeg', 'image/png'],
                 tokenPayload: JSON.stringify({}),
               };
             },
             onUploadCompleted: async ({ blob }) => {
-              console.log('Blob upload completed successfully:', blob.url);
+              console.log('Blob upload completed:', blob.url);
             },
           });
-          return new Response(JSON.stringify(jsonResponse), { status: 200, headers: corsHeaders });
+          return res.status(200).json(jsonResponse);
         } catch (error: any) {
-          console.error('handleUpload error:', error);
-          return new Response(JSON.stringify({ error: error.message }), { status: 400, headers: corsHeaders });
+          console.error('handleUpload error:', error.message);
+          return res.status(400).json({ error: error.message });
         }
       }
 
-      // CASE B: Save metadata to KV after successful blob upload
-      const body = await request.json();
-      const { 
-        matricNumber, studentName, department, faculty, level, 
-        cgpa, session, fileUrl, fileName, fileType, fileSize 
-      } = body;
-
-      const newTranscript = {
+      // CASE B: Save metadata to KV
+      const transcripts: any[] = (await kv.get('fedpolynas_transcripts')) || [];
+      const newEntry = {
+        ...req.body,
         id: `trs_${Date.now()}`,
-        matricNumber: matricNumber || 'Unknown',
-        studentName: studentName || 'Unknown',
-        department: department || '',
-        faculty: faculty || '',
-        level: level || '',
-        cgpa: cgpa || '',
-        session: session || '',
-        fileName: fileName || 'transcript.pdf',
-        fileType: fileType || 'application/pdf',
-        fileUrl: fileUrl,
         uploadedAt: new Date().toISOString(),
-        fileSize: fileSize || 0,
       };
-
-      const transcripts: any[] = (await kv.get(STORAGE_KEY)) || [];
-      transcripts.push(newTranscript);
-      await kv.set(STORAGE_KEY, transcripts);
-
-      return new Response(JSON.stringify(newTranscript), { status: 200, headers: corsHeaders });
+      transcripts.push(newEntry);
+      await kv.set('fedpolynas_transcripts', transcripts);
+      return res.status(200).json(newEntry);
     }
 
-    // 3. DELETE: Remove transcript
-    if (request.method === 'DELETE') {
-      const id = url.searchParams.get('id');
-      if (!id) return new Response(JSON.stringify({ error: 'Missing ID' }), { status: 400, headers: corsHeaders });
+    // 5. DELETE: Remove record
+    if (req.method === 'DELETE') {
+      const { id } = req.query;
+      if (!id) return res.status(400).json({ error: 'Missing ID' });
 
-      const transcripts: any[] = (await kv.get(STORAGE_KEY)) || [];
+      const transcripts: any[] = (await kv.get('fedpolynas_transcripts')) || [];
       const updated = transcripts.filter((t: any) => t.id !== id);
-      await kv.set(STORAGE_KEY, updated);
-
-      return new Response(JSON.stringify({ success: true }), { status: 200, headers: corsHeaders });
+      await kv.set('fedpolynas_transcripts', updated);
+      return res.status(200).json({ success: true });
     }
 
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers: corsHeaders });
+    return res.status(405).json({ error: 'Method not allowed' });
   } catch (error: any) {
-    console.error('API Runtime Error:', error);
-    return new Response(
-      JSON.stringify({ error: 'Internal Server Error', details: error.message }), 
-      { status: 500, headers: corsHeaders }
-    );
+    console.error('Runtime API Error:', error);
+    return res.status(500).json({ error: 'Internal Server Error', details: error.message });
   }
 }
