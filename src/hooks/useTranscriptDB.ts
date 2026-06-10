@@ -1,25 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
-import { upload } from '@vercel/blob/client';
+import { supabase } from '@/lib/supabase';
 import type { Transcript, UploadFormData } from '@/types/transcript';
-
-const STORAGE_KEY = 'fedpolynas_transcripts';
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-
-// Use Cloud API if we are in production (Vercel)
-const isLocal = import.meta.env.DEV;
-
-function getStoredTranscripts(): Transcript[] {
-  try {
-    const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveTranscripts(transcripts: Transcript[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(transcripts));
-}
 
 export function useTranscriptDB() {
   const [transcripts, setTranscripts] = useState<Transcript[]>([]);
@@ -27,26 +8,34 @@ export function useTranscriptDB() {
 
   const refresh = useCallback(async () => {
     setIsLoading(true);
-    if (isLocal) {
-      setTranscripts(getStoredTranscripts());
-      setIsLoading(false);
-      return;
-    }
-
     try {
-      const response = await fetch('/api');
-      if (response.ok) {
-        const data = await response.json();
-        setTranscripts(data);
-      } else {
-        const errorText = await response.text();
-        console.error('API Fetch error:', response.status, errorText);
-        // Try fallback to local if API is down
-        setTranscripts(getStoredTranscripts());
-      }
+      const { data, error } = await supabase
+        .from('transcripts')
+        .select('*')
+        .order('uploaded_at', { ascending: false });
+
+      if (error) throw error;
+
+      // Map Supabase snake_case to our camelCase types
+      const mappedData: Transcript[] = (data || []).map((t: any) => ({
+        id: t.id,
+        matricNumber: t.matric_number,
+        studentName: t.student_name,
+        department: t.department,
+        faculty: t.faculty,
+        level: t.level,
+        cgpa: t.cgpa,
+        session: t.academic_session,
+        fileName: t.file_name,
+        fileType: t.file_type,
+        fileUrl: t.file_url,
+        uploadedAt: t.uploaded_at,
+        fileSize: t.file_size,
+      }));
+
+      setTranscripts(mappedData);
     } catch (error) {
-      console.error('API Fetch error:', error);
-      setTranscripts(getStoredTranscripts()); // Fallback
+      console.error('Supabase fetch error:', error);
     } finally {
       setIsLoading(false);
     }
@@ -58,96 +47,78 @@ export function useTranscriptDB() {
 
   const addTranscript = useCallback(
     async (formData: UploadFormData, file: File): Promise<Transcript> => {
-      if (file.size > MAX_FILE_SIZE) throw new Error('File size exceeds 5MB limit');
+      // 1. Upload file to Supabase Storage
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${formData.matricNumber.replace(/\//g, '_')}_${Date.now()}.${fileExt}`;
+      const filePath = `${fileName}`;
 
-      if (isLocal) {
-        const toBase64 = (f: File) => new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.readAsDataURL(f);
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = error => reject(error);
-        });
+      const { error: uploadError } = await supabase.storage
+        .from('transcripts')
+        .upload(filePath, file);
 
-        const fileData = await toBase64(file);
-        const newTranscript: Transcript = {
-          id: `trs_${Date.now()}`,
-          ...formData,
-          fileName: file.name,
-          fileType: file.type,
-          fileUrl: fileData, // Local Base64
-          uploadedAt: new Date().toISOString(),
-          fileSize: file.size,
-        };
-        const updated = [...getStoredTranscripts(), newTranscript];
-        saveTranscripts(updated);
-        setTranscripts(updated);
-        return newTranscript;
-      }
+      if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
 
-      // Vercel Logic: Use Client-Side Upload to bypass 4.5MB limit
-      try {
-        // 1. Upload file directly to Vercel Blob
-        const blob = await upload(`transcripts/${formData.matricNumber.replace(/\//g, '_')}-${Date.now()}-${file.name}`, file, {
-          access: 'public',
-          handleUploadUrl: '/api?action=upload',
-        });
+      // 2. Get Public URL
+      const { data: urlData } = supabase.storage
+        .from('transcripts')
+        .getPublicUrl(filePath);
 
-        // 2. Save metadata to KV via our API
-        const response = await fetch('/api', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...formData,
-            fileUrl: blob.url,
-            fileName: file.name,
-            fileType: file.type,
-            fileSize: file.size,
-          }),
-        });
+      const fileUrl = urlData.publicUrl;
 
-        if (!response.ok) {
-          let errorMessage = 'Failed to save record';
-          try {
-            const errorData = await response.json();
-            errorMessage = errorData.error || errorData.details || errorMessage;
-          } catch (e) {
-            const text = await response.text();
-            errorMessage = text || `Server returned ${response.status}`;
-          }
-          throw new Error(errorMessage);
-        }
-        
-        const result = await response.json();
-        setTranscripts(prev => [...prev, result]);
-        return result;
-      } catch (error: any) {
-        console.error('Upload Error:', error);
-        throw error;
-      }
+      // 3. Save Record to Database
+      const { data: insertData, error: dbError } = await supabase
+        .from('transcripts')
+        .insert([
+          {
+            matric_number: formData.matricNumber,
+            student_name: formData.studentName,
+            department: formData.department,
+            faculty: formData.faculty,
+            level: formData.level,
+            cgpa: formData.cgpa,
+            academic_session: formData.session,
+            file_name: file.name,
+            file_type: file.type,
+            file_url: fileUrl,
+            file_size: file.size,
+          },
+        ])
+        .select()
+        .single();
+
+      if (dbError) throw new Error(`Database error: ${dbError.message}`);
+
+      const newTranscript: Transcript = {
+        id: insertData.id,
+        matricNumber: insertData.matric_number,
+        studentName: insertData.student_name,
+        department: insertData.department,
+        faculty: insertData.faculty,
+        level: insertData.level,
+        cgpa: insertData.cgpa,
+        session: insertData.academic_session,
+        fileName: insertData.file_name,
+        fileType: insertData.file_type,
+        fileUrl: insertData.file_url,
+        uploadedAt: insertData.uploaded_at,
+        fileSize: insertData.file_size,
+      };
+
+      setTranscripts(prev => [newTranscript, ...prev]);
+      return newTranscript;
     },
     []
   );
 
   const deleteTranscript = useCallback(async (id: string) => {
-    if (isLocal) {
-      const updated = getStoredTranscripts().filter(t => t.id !== id);
-      saveTranscripts(updated);
-      setTranscripts(updated);
-      return;
-    }
-    await fetch(`/api?id=${id}`, { method: 'DELETE' });
+    // Note: In a real app, you'd also delete the file from Storage
+    const { error } = await supabase.from('transcripts').delete().eq('id', id);
+    if (error) throw error;
     setTranscripts(prev => prev.filter(t => t.id !== id));
   }, []);
 
   const downloadTranscript = useCallback((transcript: Transcript) => {
-    if (transcript.fileUrl.startsWith('data:')) {
-      const link = document.createElement('a');
-      link.href = transcript.fileUrl;
-      link.download = transcript.fileName;
-      link.click();
-    } else {
-      window.open(transcript.fileUrl, '_blank');
-    }
+    window.open(transcript.fileUrl, '_blank');
   }, []);
 
   const findByMatricNumber = useCallback((matricNumber: string) => {
@@ -164,9 +135,19 @@ export function useTranscriptDB() {
 
   const getStats = useCallback(() => ({
     total: transcripts.length,
-    totalSize: transcripts.reduce((acc, t) => acc + t.fileSize, 0),
-    lastUpload: transcripts.length > 0 ? transcripts[transcripts.length - 1].uploadedAt : null,
+    totalSize: transcripts.reduce((acc, t) => acc + (t.fileSize || 0), 0),
+    lastUpload: transcripts.length > 0 ? transcripts[0].uploadedAt : null,
   }), [transcripts]);
 
-  return { transcripts, isLoading, refresh, addTranscript, findByMatricNumber, deleteTranscript, downloadTranscript, searchTranscripts, getStats };
+  return { 
+    transcripts, 
+    isLoading, 
+    refresh, 
+    addTranscript, 
+    findByMatricNumber, 
+    deleteTranscript, 
+    downloadTranscript, 
+    searchTranscripts, 
+    getStats 
+  };
 }
