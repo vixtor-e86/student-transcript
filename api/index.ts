@@ -1,69 +1,105 @@
-import { handleUpload } from '@vercel/blob';
+import { handleUpload, type HandleUploadBody } from '@vercel/blob';
 import { kv } from '@vercel/kv';
 
-export default async function handler(req: any, res: any) {
-  // CORS setup
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+export const config = {
+  runtime: 'edge',
+};
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+const STORAGE_KEY = 'fedpolynas_transcripts';
+
+export default async function handler(request: Request) {
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
+
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
   try {
-    const { action } = req.query;
+    const { searchParams } = new URL(request.url);
+    const action = searchParams.get('action');
 
     // 1. GET: Fetch all transcripts
-    if (req.method === 'GET') {
-      const transcripts = await kv.get('fedpolynas_transcripts');
-      return res.status(200).json(transcripts || []);
+    if (request.method === 'GET') {
+      const transcripts = await kv.get(STORAGE_KEY);
+      return new Response(JSON.stringify(transcripts || []), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     // 2. POST: Token or Metadata
-    if (req.method === 'POST') {
-      // CASE A: Token generation for @vercel/blob
+    if (request.method === 'POST') {
       if (action === 'upload') {
-        const jsonResponse = await handleUpload({
-          body: req.body,
-          request: req,
-          onBeforeGenerateToken: async () => {
-            return {
-              allowedContentTypes: ['application/pdf', 'image/jpeg', 'image/png'],
-              tokenPayload: JSON.stringify({}),
-            };
-          },
-          onUploadCompleted: async ({ blob }) => {
-            console.log('Blob upload completed:', blob.url);
-          },
-        });
-        return res.status(200).json(jsonResponse);
+        const body = (await request.json()) as HandleUploadBody;
+        try {
+          const jsonResponse = await handleUpload({
+            body,
+            request,
+            onBeforeGenerateToken: async () => {
+              return {
+                allowedContentTypes: ['application/pdf', 'image/jpeg', 'image/png'],
+                tokenPayload: JSON.stringify({}),
+              };
+            },
+            onUploadCompleted: async ({ blob }) => {
+              console.log('Blob upload completed:', blob.url);
+            },
+          });
+          return new Response(JSON.stringify(jsonResponse), {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        } catch (error: any) {
+          return new Response(JSON.stringify({ error: error.message }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
       }
 
-      // CASE B: Save to KV
-      const transcripts: any[] = (await kv.get('fedpolynas_transcripts')) || [];
+      // Save metadata
+      const body = await request.json();
+      const transcripts: any[] = (await kv.get(STORAGE_KEY)) || [];
       const newEntry = {
-        ...req.body,
+        ...body,
         id: `trs_${Date.now()}`,
         uploadedAt: new Date().toISOString(),
       };
       transcripts.push(newEntry);
-      await kv.set('fedpolynas_transcripts', transcripts);
-      return res.status(200).json(newEntry);
+      await kv.set(STORAGE_KEY, transcripts);
+
+      return new Response(JSON.stringify(newEntry), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     // 3. DELETE
-    if (req.method === 'DELETE') {
-      const { id } = req.query;
-      const transcripts: any[] = (await kv.get('fedpolynas_transcripts')) || [];
+    if (request.method === 'DELETE') {
+      const id = searchParams.get('id');
+      const transcripts: any[] = (await kv.get(STORAGE_KEY)) || [];
       const updated = transcripts.filter((t: any) => t.id !== id);
-      await kv.set('fedpolynas_transcripts', updated);
-      return res.status(200).json({ success: true });
+      await kv.set(STORAGE_KEY, updated);
+
+      return new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
-    return res.status(405).json({ error: 'Method not allowed' });
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   } catch (error: any) {
-    console.error('API Error:', error);
-    return res.status(500).json({ error: error.message });
+    console.error('Edge API Error:', error);
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   }
 }
